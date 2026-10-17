@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--bd:#30363d;--fg:#e6edf3;--mut:#8b949e}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px system-ui,sans-serif;overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+#side{position:absolute;top:10px;left:10px;width:270px;background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:12px;max-height:calc(100% - 20px);overflow:auto}
+h1{font-size:15px;margin:0 0 8px}label{display:flex;gap:6px;align-items:center;margin:3px 0;cursor:pointer}
+input[type=search]{width:100%;padding:6px;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:5px;margin-bottom:8px}
+select{width:100%;padding:5px;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:5px;margin:4px 0}
+.sec{margin-top:10px;padding-top:8px;border-top:1px solid var(--bd);color:var(--mut)}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}.sq{border-radius:2px}
+button{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:5px;padding:4px 8px;cursor:pointer}
+#info{position:absolute;top:10px;right:10px;width:330px;background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:12px;display:none;max-height:calc(100% - 20px);overflow:auto}
+#info a{color:#58a6ff}#info .x{float:right;cursor:pointer;color:var(--mut)}
+.nb{display:block;padding:3px 0;cursor:pointer;color:var(--fg)}.nb:hover{color:#58a6ff}
+.tag{display:inline-block;font-size:11px;border:1px solid var(--bd);border-radius:10px;padding:0 6px;margin:2px 2px 0 0;color:var(--mut)}
+#tip{position:absolute;pointer-events:none;background:#000c;border:1px solid var(--bd);border-radius:5px;padding:4px 7px;display:none;max-width:360px}
+.wi{display:flex;gap:6px;padding:5px 6px;border-bottom:1px solid var(--bd);cursor:pointer;align-items:baseline}.wi:hover{background:#21262d}.wi:last-child{border:0}
+.pr{font-size:10px;border-radius:3px;padding:0 4px;color:#fff;flex:none}.wi a{color:var(--mut);text-decoration:none;flex:none}
+#stat{color:var(--mut);margin-top:6px}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="side">
+<h1>__TITLE__</h1>
+<input type="search" id="q" placeholder="Search (title or #number)">
+<label><input type="checkbox" id="fi" checked><span class="dot" style="background:#3fb950"></span> Issues (circle)</label>
+<label><input type="checkbox" id="fp" checked><span class="dot sq" style="background:#58a6ff"></span> Pull requests (diamond)</label>
+<div class="sec">Status</div>
+<label><input type="checkbox" id="so" checked><span class="dot" style="background:#3fb950"></span> open</label>
+<label><input type="checkbox" id="sc"><span class="dot" style="background:#a371f7"></span> closed</label>
+<label><input type="checkbox" id="sm"><span class="dot" style="background:#db61a2"></span> merged</label>
+<div class="sec">Links</div>
+<label><input type="checkbox" id="ec" checked><span style="color:#f0883e">━</span> closes/fixes (Closes #…)</label>
+<label><input type="checkbox" id="er" checked><span style="color:#6e7681">━</span> mentions (#… or issue URL, incl. all comments)</label>
+<label><input type="checkbox" id="ep" checked><span style="color:#58a6ff">━</span> "Possibly related" (bot comments)</label>
+<label><input type="checkbox" id="ed" checked><span style="color:#f85149">━</span> "Possible duplicate" (bot comments)</label>
+<label><input type="checkbox" id="hp" checked> Hide issues that already have a PR</label>
+<label>Hide hubs above <input type="number" id="mx" value="60" min="1" style="width:55px"> links</label>
+<label><input type="checkbox" id="iso"> show unlinked items too</label>
+<label>Min. links <input type="number" id="md" value="1" min="0" style="width:50px"></label>
+<div class="sec">Label</div>
+<select id="lab"><option value="">all labels</option></select>
+<div class="sec">Layout</div>
+<label><input type="checkbox" id="lbl" checked> Labels when zoomed in</label>
+<button id="reheat">Re-layout</button> <button id="fit">Fit all</button>
+<div id="stat"></div>
+<div class="sec"><b style="color:var(--fg)">Find work</b></div>
+<div style="color:var(--mut);font-size:12px">Open issues without a PR, matching the filters above.</div>
+<select id="wsort"><option value="prio">Sort: priority</option><option value="deg">Sort: most linked</option><option value="old">Sort: oldest first</option><option value="new">Sort: newest first</option></select>
+<label><input type="checkbox" id="wunclear" checked> Hide unclear (duplicate, needs info, question, support …)</label>
+<label><input type="checkbox" id="wbug"> only bugs</label>
+<div id="wcount" style="color:var(--mut);margin:4px 0"></div>
+<div id="wlist" style="max-height:300px;overflow:auto;border:1px solid var(--bd);border-radius:5px"></div>
+<button id="wrand" style="margin-top:6px">Random pick</button>
+
+<div class="sec" style="font-size:12px">Drag = move node · drag background = pan · wheel = zoom · click = highlight neighbours · double-click = release node</div>
+</div>
+<div id="info"></div><div id="tip"></div>
+<script>
+const DATA=__DATA__;
+const REPO=DATA.repoUrl;
+const C={iO:'#3fb950',iC:'#a371f7',pO:'#58a6ff',pM:'#db61a2',pC:'#f85149'};
+const byN=new Map();
+const N=DATA.nodes.map((d,i)=>{const o={...d,i,deg:0,x:0,y:0,vx:0,vy:0,fx:null,fy:null,nb:[]};byN.set(d.n,o);return o});
+const E=DATA.edges.map(([a,b,k])=>({a:byN.get(a),b:byN.get(b),k})).filter(e=>e.a&&e.b);
+for(const e of E){e.a.deg++;e.b.deg++;e.a.nb.push(e);e.b.nb.push(e)}
+const labels=new Map();for(const n of N)for(const l of n.l)labels.set(l,(labels.get(l)||0)+1);
+const sel=document.getElementById('lab');
+[...labels].sort((a,b)=>b[1]-a[1]).forEach(([l,c])=>{const o=document.createElement('option');o.value=l;o.textContent=`${l} (${c})`;sel.appendChild(o)});
+const col=n=>n.t==='i'?(n.s==='O'?C.iO:C.iC):(n.s==='O'?C.pO:n.s==='M'?C.pM:C.pC);
+const $=id=>document.getElementById(id);
+const cv=$('c'),ctx=cv.getContext('2d');
+let W,H,dpr=devicePixelRatio||1,T={x:0,y:0,k:0.5};
+function resize(){W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr}
+addEventListener('resize',resize);resize();
+let vis=[],visE=[],visSet=new Set(),selN=null,hov=null,alpha=1;
+function relevant(n){
+  if(n.t==='i'&&!$('fi').checked||n.t==='p'&&!$('fp').checked)return false;
+  if(n.s==='O'&&!$('so').checked||n.s==='C'&&!$('sc').checked||n.s==='M'&&!$('sm').checked)return false;
+  const L=sel.value;if(L&&!n.l.includes(L))return false;return true}
+function refilter(){
+  const ec=$('ec').checked,er=$('er').checked,md=+$('md').value||0,iso=$('iso').checked;
+  const mx=+$('mx').value||1e9;const hp=$('hp').checked;const ok=new Set(N.filter(n=>n.deg<=mx&&relevant(n)&&!(hp&&n.t==='i'&&n.nb.some(e=>{const o=e.a===n?e.b:e.a;return o.t==='p'&&o.s!=='C'}))));
+  visE=E.filter(e=>ok.has(e.a)&&ok.has(e.b)&&({c:ec,r:er,p:$('ep').checked,d:$('ed').checked}[e.k]));
+  const d=new Map();for(const e of visE){d.set(e.a,(d.get(e.a)||0)+1);d.set(e.b,(d.get(e.b)||0)+1)}
+  vis=[...ok].filter(n=>{n.vd=d.get(n)||0;return iso?n.vd>=md:n.vd>=Math.max(1,md)});
+  visSet=new Set(vis);visE=visE.filter(e=>visSet.has(e.a)&&visSet.has(e.b));
+  for(const n of vis){if(!n.placed){n.placed=1;const a=Math.random()*6.28,r=Math.sqrt(Math.random())*Math.sqrt(vis.length)*14;n.x=Math.cos(a)*r;n.y=Math.sin(a)*r}}
+  alpha=Math.max(alpha,0.5);
+  const q=$('q').value.trim().toLowerCase();
+  for(const n of N)n.match=!q||n.ti.toLowerCase().includes(q)||('#'+n.n)===q||String(n.n)===q;
+  $('stat').textContent=`${vis.length} nodes · ${visE.length} links`;
+}
+const R=n=>(n.t==='p'?3.2:2.6)+Math.sqrt(n.deg)*1.6;
+function qt(nodes){ // Barnes-Hut Quadtree
+  let a=1e9,b=1e9,c=-1e9,d=-1e9;for(const n of nodes){if(n.x<a)a=n.x;if(n.x>c)c=n.x;if(n.y<b)b=n.y;if(n.y>d)d=n.y}
+  const s=Math.max(c-a,d-b,1)+1;const mk=(x,y,s)=>({x,y,s,m:0,cx:0,cy:0,n:null,ch:null});
+  const root=mk(a,b,s);
+  function ins(q,n,dep){q.m++;q.cx+=n.x;q.cy+=n.y;
+    if(!q.ch&&!q.n){q.n=n;return}
+    if(!q.ch){if(dep>40){return}q.ch=[null,null,null,null];const o=q.n;q.n=null;put(q,o,dep)}
+    put(q,n,dep)}
+  function put(q,n,dep){const h=q.s/2,i=(n.x>=q.x+h?1:0)+(n.y>=q.y+h?2:0);
+    if(!q.ch[i])q.ch[i]=mk(q.x+(i&1?h:0),q.y+(i&2?h:0),h);
+    const ch=q.ch[i];ch.m++;ch.cx+=n.x;ch.cy+=n.y;
+    if(!ch.ch&&!ch.n){ch.n=n;return}
+    if(!ch.ch){if(dep>40)return;ch.ch=[null,null,null,null];const o=ch.n;ch.n=null;put(ch,o,dep+1)}
+    put(ch,n,dep+1)}
+  for(const n of nodes)ins(root,n,0);
+  return root}
+function repel(q,n,al){
+  if(!q||q.m===0)return;
+  const mx=q.cx/q.m,my=q.cy/q.m;let dx=n.x-mx,dy=n.y-my,d2=dx*dx+dy*dy;
+  if(q.n===n&&!q.ch)return;
+  if(!q.ch||q.s*q.s/(d2||1)<0.81){ // weit genug weg oder Blatt
+    if(q.n===n)return;
+    if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1}
+    if(d2>250000)return;
+    const f=REP*al*q.m/d2;n.vx+=dx*f;n.vy+=dy*f;return}
+  for(const c of q.ch)repel(c,n,al)}
+const REP=40;
+function tick(){
+  if(alpha<0.003)return;
+  const root=qt(vis);
+  for(const n of vis){repel(root,n,alpha);n.vx-=n.x*0.004*alpha;n.vy-=n.y*0.004*alpha}
+  for(const e of visE){const dx=e.b.x-e.a.x,dy=e.b.y-e.a.y,d=Math.hypot(dx,dy)||1,L=e.k==='c'?14:e.k==='d'?18:e.k==='p'?32:26,
+      st=0.7/Math.min(e.a.vd||1,e.b.vd||1),f=(d-L)/d*st*alpha,bias=e.a.vd/(e.a.vd+e.b.vd);
+    e.a.vx+=dx*f*(1-bias);e.a.vy+=dy*f*(1-bias);e.b.vx-=dx*f*bias;e.b.vy-=dy*f*bias}
+  for(const n of vis){if(n.fx!=null){n.x=n.fx;n.y=n.fy;n.vx=n.vy=0;continue}n.vx=Math.max(-20,Math.min(20,n.vx*0.6));n.vy=Math.max(-20,Math.min(20,n.vy*0.6));n.x+=n.vx;n.y+=n.vy}
+  alpha*=0.985;
+}
+const hi=()=>selN?new Set([selN,...selN.nb.map(e=>e.a===selN?e.b:e.a)]):null;
+function draw(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  ctx.translate(W/2+T.x,H/2+T.y);ctx.scale(T.k,T.k);
+  const H_=hi(),k=T.k,x0=(-W/2-T.x)/k-20,x1=(W/2-T.x)/k+20,y0=(-H/2-T.y)/k-20,y1=(H/2-T.y)/k+20;
+  const q=$('q').value.trim();
+  ctx.lineWidth=1/k;
+  for(const pass of [0,1]){
+    for(const e of visE){const hl=H_&&(e.a===selN||e.b===selN);if((pass===1)!==!!hl)continue;
+      ctx.globalAlpha=hl?1:(H_?0.06:(q?0.12:0.35));ctx.strokeStyle={c:'#f0883e',d:'#f85149',p:'#58a6ff',r:'#6e7681'}[e.k];
+      ctx.lineWidth=(hl?2:e.k==='c'||e.k==='d'?1.2:0.8)/k;ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke()}}
+  const showLbl=$('lbl').checked&&k>1.6;
+  for(const n of vis){if(n.x<x0||n.x>x1||n.y<y0||n.y>y1)continue;
+    const dim=(H_&&!H_.has(n))||(q&&!n.match);ctx.globalAlpha=dim?0.1:1;
+    const r=R(n);ctx.fillStyle=col(n);ctx.beginPath();
+    if(n.t==='i')ctx.arc(n.x,n.y,r,0,6.2832);else{ctx.moveTo(n.x,n.y-r*1.3);ctx.lineTo(n.x+r*1.3,n.y);ctx.lineTo(n.x,n.y+r*1.3);ctx.lineTo(n.x-r*1.3,n.y);ctx.closePath()}
+    ctx.fill();
+    if(n===selN||n===hov||(q&&n.match)){ctx.strokeStyle='#fff';ctx.lineWidth=1.5/k;ctx.stroke()}
+    if(!dim&&(showLbl||n===selN||n===hov||(H_&&H_.has(n)&&k>0.8))){ctx.globalAlpha=1;ctx.fillStyle='#e6edf3';ctx.font=`${11/k}px system-ui`;ctx.fillText(`#${n.n} ${n.ti.slice(0,48)}`,n.x+r+3/k,n.y+3/k)}}
+  ctx.globalAlpha=1;
+}
+function loop(){tick();tick();draw();requestAnimationFrame(loop)}
+function toW(px,py){return[(px-W/2-T.x)/T.k,(py-H/2-T.y)/T.k]}
+function pick(px,py){const[x,y]=toW(px,py);let best=null,bd=1e9;for(const n of vis){const r=R(n)+3/T.k,d=(n.x-x)**2+(n.y-y)**2;if(d<r*r&&d<bd){bd=d;best=n}}return best}
+let drag=null,pan=null,moved=false;
+cv.addEventListener('mousedown',e=>{moved=false;const n=pick(e.offsetX,e.offsetY);if(n){drag=n;n.fx=n.x;n.fy=n.y;alpha=Math.max(alpha,0.3)}else pan={x:e.clientX-T.x,y:e.clientY-T.y}});
+addEventListener('mousemove',e=>{
+  if(drag){const[x,y]=toW(e.clientX,e.clientY);drag.fx=x;drag.fy=y;moved=true;alpha=Math.max(alpha,0.3)}
+  else if(pan){T.x=e.clientX-pan.x;T.y=e.clientY-pan.y;moved=true}
+  else if(e.target===cv){const n=pick(e.offsetX,e.offsetY);hov=n;const t=$('tip');
+    if(n){t.style.display='block';t.style.left=e.clientX+14+'px';t.style.top=e.clientY+14+'px';t.textContent=`${n.t==='i'?'Issue':'PR'} #${n.n} · ${{O:'open',C:'closed',M:'merged'}[n.s]} · ${n.deg} links — ${n.ti}`}else t.style.display='none'}});
+addEventListener('mouseup',e=>{
+  if(drag){if(!moved)select(drag);else if(!drag.pin){drag.fx=drag.fy=null}drag=null}
+  else if(pan){if(!moved)select(null);pan=null}});
+cv.addEventListener('dblclick',e=>{const n=pick(e.offsetX,e.offsetY);if(n){n.fx=n.fy=null}});
+cv.addEventListener('wheel',e=>{e.preventDefault();const f=Math.exp(-e.deltaY*0.0015),[wx,wy]=toW(e.offsetX,e.offsetY);T.k=Math.min(12,Math.max(0.03,T.k*f));T.x=e.offsetX-W/2-wx*T.k;T.y=e.offsetY-H/2-wy*T.k},{passive:false});
+function select(n){selN=n;const p=$('info');if(!n){p.style.display='none';return}
+  const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const nb=n.nb.map(e=>({o:e.a===n?e.b:e.a,k:e.k})).filter(x=>visSet.has(x.o)).sort((a,b)=>b.o.deg-a.o.deg);
+  p.innerHTML=`<span class="x" onclick="select(null)">✕</span><b>${n.t==='i'?'Issue':'Pull Request'} <a target="_blank" href="${REPO}${n.t==='i'?'issues':'pull'}/${n.n}">#${n.n}</a></b><br>${esc(n.ti)}<br>
+  <span class="tag" style="color:${col(n)}">${{O:'open',C:'closed',M:'merged'}[n.s]}</span><span class="tag">${n.d}</span>${n.l.map(l=>`<span class="tag">${esc(l)}</span>`).join('')}
+  <p style="color:var(--mut);white-space:pre-wrap">${esc(n.ex||'')}${n.ex&&n.ex.length>=200?'…':''}</p>
+  <div class="sec">${nb.length} links</div>${nb.map(x=>`<span class="nb" onclick="focusN(${x.o.n})"><span style="color:${col(x.o)}">${x.o.t==='i'?'●':'◆'}</span> #${x.o.n} ${{c:'<span style="color:#f0883e">(Closes)</span> ',d:'<span style="color:#f85149">(duplicate?)</span> ',p:'<span style="color:#58a6ff">(bot: related)</span> ',r:''}[x.k]}${esc(x.o.ti.slice(0,60))}</span>`).join('')}`;
+  p.style.display='block'}
+function focusN(num){const n=byN.get(num);if(!n)return;select(n);T.x=-n.x*T.k;T.y=-n.y*T.k}
+function fit(){if(!vis.length)return;let a=1e9,b=1e9,c=-1e9,d=-1e9;const xs=vis.map(n=>n.x).sort((p,q)=>p-q),ys=vis.map(n=>n.y).sort((p,q)=>p-q);
+  const lo=Math.floor(vis.length*0.02),hi_=Math.floor(vis.length*0.98);a=xs[lo];c=xs[hi_];b=ys[lo];d=ys[hi_];
+  T.k=Math.min(W/(c-a+80),H/(d-b+80));T.x=-(a+c)/2*T.k;T.y=-(b+d)/2*T.k}
+for(const id of ['fi','fp','so','sc','sm','ec','er','ep','ed','iso','md','mx','hp','lab','q'])$(id).addEventListener('input',()=>{refilter();if(selN&&!visSet.has(selN))select(null)});
+$('reheat').onclick=()=>{alpha=1};$('fit').onclick=fit;
+refilter();
+const PN=['–','low','med','high','crit'],PC=['#6e7681','#6e7681','#d29922','#f0883e','#f85149'];
+const prio=l=>{l=l.toLowerCase();if(!/prior|^p[0-4]\b|severity|urgent|critical|blocker|\bhigh\b|\bmedium\b|\blow\b/.test(l))return 0;
+  if(/critical|blocker|urgent|\bp0\b|\bp1\b|sev(erity)?[ :-]*[01]/.test(l))return 4;if(/high|\bp2\b/.test(l))return 3;if(/medium|normal|\bp3\b/.test(l))return 2;if(/low|minor|\bp4\b/.test(l))return 1;return 0};
+const UNCLEAR=/duplicate|invalid|wontfix|won't fix|needs[ -]info|needs[ -]repro|question|support|no action|decision|discussion|stale|multiple issues|spam/i;
+for(const n of N){n.pr=Math.max(0,...n.l.map(prio));n.hasPR=n.t==='i'&&n.nb.some(e=>{const o=e.a===n?e.b:e.a;return o.t==='p'&&o.s!=='C'})}
+let wl=[];
+function work(){
+  const L=sel.value,hp=$('hp').checked,uc=$('wunclear').checked,bug=$('wbug').checked,q=$('q').value.trim().toLowerCase();
+  wl=N.filter(n=>n.t==='i'&&n.s==='O'&&!(hp&&n.hasPR)&&!(uc&&n.l.some(l=>UNCLEAR.test(l)))&&(!bug||n.l.some(l=>/bug/i.test(l)))&&(!L||n.l.includes(L))&&(!q||n.match));
+  const s=$('wsort').value;
+  wl.sort((a,b)=>s==='deg'?b.deg-a.deg||b.pr-a.pr:s==='old'?a.d.localeCompare(b.d):s==='new'?b.d.localeCompare(a.d):b.pr-a.pr||b.deg-a.deg);
+  $('wcount').textContent=`${wl.length} candidates`+(wl.length>150?' (first 150)':'');
+  const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  $('wlist').innerHTML=wl.slice(0,150).map(n=>`<div class="wi" data-n="${n.n}"><span class="pr" style="background:${PC[n.pr]}">${PN[n.pr]}</span><span>#${n.n} ${esc(n.ti.slice(0,80))}${n.deg?` <span style="color:var(--mut)">· ${n.deg}🔗</span>`:''}</span><a href="${REPO}issues/${n.n}" target="_blank" title="open on GitHub" onclick="event.stopPropagation()">↗</a></div>`).join('');
+}
+$('wlist').addEventListener('click',e=>{const r=e.target.closest('.wi');if(!r)return;const n=byN.get(+r.dataset.n);
+  if(visSet.has(n)){focusN(n.n)}else{select(null);window.open(REPO+'issues/'+n.n,'_blank')}});
+$('wrand').onclick=()=>{const top=wl.slice(0,Math.max(10,Math.floor(wl.length/4)));const n=top[Math.floor(Math.random()*top.length)];if(!n)return;if(visSet.has(n))focusN(n.n);else window.open(REPO+'issues/'+n.n,'_blank')};
+for(const id of ['wsort','wunclear','wbug','hp','lab','q'])$(id).addEventListener('input',work);
+work();
+
+{const t0=performance.now();while(alpha>0.02&&performance.now()-t0<6000)tick();window.preMs=performance.now()-t0}   // vorab einschwingen
+fit();loop();setTimeout(fit,500);
+</script></body></html>
