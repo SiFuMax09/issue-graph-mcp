@@ -35,8 +35,18 @@ TOOLS = [
             "sort": {"type": "string", "enum": ["priority", "links", "oldest", "newest"], "description": "Default priority (from labels such as 'priority: high'), then most linked"},
             "hide_with_pr": {"type": "boolean", "description": "Skip issues linked to an open or merged PR (default true)"},
             "hide_unclear": {"type": "boolean", "description": "Skip duplicate / needs-info / question / support labelled issues (default true)"},
+            "hide_possibly_fixed": {"type": "boolean", "description": "Skip issues that probably are fixed already (medium/high confidence, see possibly_fixed). Default false: they are listed with a `possibly_fixed` field."},
             "label": {"type": "string", "description": "Only issues with exactly this label"},
             "query": {"type": "string", "description": "Only issues whose title contains this text"}}},
+    },
+    {
+        "name": "possibly_fixed",
+        "description": "Open issues that may already be fixed: a linked issue (bot-marked duplicate / possibly related) was closed as completed, "
+                       "or a merged PR says it closes them. Each row says why, with the evidence items and the PRs that fixed them. "
+                       "Check the evidence before closing anything: confidence 'high' is a strong hint, not proof.",
+        "inputSchema": {"type": "object", "required": ["repo"], "properties": {"repo": REPO, "refresh": REFRESH,
+            "min_confidence": {"type": "string", "enum": ["low", "medium", "high"], "description": "Default medium"},
+            "limit": {"type": "integer", "description": "Max rows (default 30)"}}},
     },
     {
         "name": "related_items",
@@ -63,7 +73,10 @@ def call(name: str, a: dict):
     if name == "find_work":
         _, graph = _graph(a)
         return g.find_work(graph, limit=int(a.get("limit", 20)), sort=a.get("sort", "priority"), hide_with_pr=a.get("hide_with_pr", True),
-                           hide_unclear=a.get("hide_unclear", True), label=a.get("label"), query=a.get("query"))
+                           hide_unclear=a.get("hide_unclear", True), hide_possibly_fixed=a.get("hide_possibly_fixed", False), label=a.get("label"), query=a.get("query"))
+    if name == "possibly_fixed":
+        _, graph = _graph(a)
+        return g.list_possibly_fixed(graph, a.get("min_confidence", "medium"), int(a.get("limit", 30)))
     if name == "related_items":
         _, graph = _graph(a)
         return g.neighbours(graph, int(a["number"]))

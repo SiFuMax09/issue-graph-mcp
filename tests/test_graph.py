@@ -49,6 +49,54 @@ class Links(unittest.TestCase):
         self.assertEqual(kinds(g.build(raw(closing=[[11, 3]])))[(3, 11)], "c")
 
 
+class Fixed(unittest.TestCase):
+    def _raw(self, comments, **kw):
+        r = raw(comments=comments)
+        r["issues"].append({"number": 20, "title": "closed one", "state": "CLOSED", "stateReason": "COMPLETED", "closedAt": "2026-02-01T00:00:00Z", "labels": [], "body": "", "createdAt": "2026-01-01T00:00:00Z", "author": {"login": "u"}})
+        r["issues"].append({"number": 21, "title": "later one", "state": "OPEN", "labels": [], "body": "", "createdAt": "2026-03-01T00:00:00Z", "author": {"login": "u"}})
+        r["issues"].append({"number": 22, "title": "wontfix one", "state": "CLOSED", "stateReason": "NOT_PLANNED", "closedAt": "2026-02-01T00:00:00Z", "labels": [], "body": "", "createdAt": "2026-01-01T00:00:00Z", "author": {"login": "u"}})
+        r.update(kw)
+        return r
+
+    def bot(self, issue, text):
+        return {"u": f"https://api.github.com/repos/o/r/issues/{issue}", "a": "x[bot]", "t": "Bot", "b": text}
+
+    def pf(self, comments, **kw):
+        r = self._raw(comments, **kw)
+        return {n["n"]: n.get("pf") for n in g.build(r)["nodes"]}
+
+    def test_duplicate_of_an_issue_closed_after_it_was_opened_is_high(self):
+        pf = self.pf([self.bot(2, "Possible duplicate of #20.")])
+        self.assertEqual(pf[2]["confidence"], "high")
+
+    def test_possibly_related_closed_issue_is_medium_and_older_closure_is_low(self):
+        pf = self.pf([self.bot(2, "Possibly related: #20."), self.bot(21, "Possibly related: #20.")])
+        self.assertEqual((pf[2]["confidence"], pf[21]["confidence"]), ("medium", "low"))
+
+    def test_not_planned_closures_are_no_evidence(self):
+        self.assertIsNone(self.pf([self.bot(3, "Possible duplicate of #22.")])[3])
+
+    def test_merged_pr_that_closes_but_issue_is_open_is_high_and_names_the_pr(self):
+        r = self._raw([])
+        r["prs"][1]["body"] = "Closes #3"
+        pf = {n["n"]: n.get("pf") for n in g.build(r)["nodes"]}
+        self.assertEqual(pf[3]["confidence"], "high")
+        self.assertEqual(pf[3]["evidence"][0]["number"], 11)
+
+    def test_other_repository_evidence_is_capped_at_medium(self):
+        r = self._raw([self.bot(3, "Possibly related: o/other#9 and o/other#8.")])
+        r["external"] = {"o/other#9": {"title": "x", "state": "C", "r": "COMPLETED", "clt": "2026-02-01T00:00:00Z", "pr": False, "merged": False},
+                         "o/other#8": {"title": "y", "state": "O", "r": "", "clt": "", "pr": False, "merged": False}}
+        pf = {n["n"]: n.get("pf") for n in g.build(r)["nodes"]}
+        self.assertEqual(pf[3]["confidence"], "medium")
+        self.assertEqual([e["number"] for e in pf[3]["evidence"]], ["o/other#9"])
+
+    def test_find_work_can_hide_them(self):
+        graph = g.build(self._raw([self.bot(3, "Possible duplicate of #20.")]))
+        self.assertIn(3, [r["number"] for r in g.find_work(graph)])
+        self.assertNotIn(3, [r["number"] for r in g.find_work(graph, hide_possibly_fixed=True)])
+
+
 class Work(unittest.TestCase):
     def test_find_work_skips_issues_with_a_pr_and_unclear_ones_and_ranks_by_priority(self):
         graph = g.build(raw())

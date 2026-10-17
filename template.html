@@ -51,6 +51,7 @@ button{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-ra
 <select id="wsort"><option value="prio">Sort: priority</option><option value="deg">Sort: most linked</option><option value="old">Sort: oldest first</option><option value="new">Sort: newest first</option></select>
 <label><input type="checkbox" id="wunclear" checked> Hide unclear (duplicate, needs info, question, support …)</label>
 <label><input type="checkbox" id="wbug"> only bugs</label>
+<label><input type="checkbox" id="wfix"> Hide possibly fixed (medium/high)</label>
 <div id="wcount" style="color:var(--mut);margin:4px 0"></div>
 <div id="wlist" style="max-height:300px;overflow:auto;border:1px solid var(--bd);border-radius:5px"></div>
 <button id="wrand" style="margin-top:6px">Random pick</button>
@@ -172,7 +173,7 @@ function select(n){selN=n;const p=$('info');if(!n){p.style.display='none';return
   const nb=n.nb.map(e=>({o:e.a===n?e.b:e.a,k:e.k})).filter(x=>visSet.has(x.o)).sort((a,b)=>b.o.deg-a.o.deg);
   p.innerHTML=`<span class="x" onclick="select(null)">✕</span><b>${n.t==='i'?'Issue':'Pull Request'} <a target="_blank" href="${REPO}${n.t==='i'?'issues':'pull'}/${n.n}">#${n.n}</a></b><br>${esc(n.ti)}<br>
   <span class="tag" style="color:${col(n)}">${{O:'open',C:'closed',M:'merged'}[n.s]}</span><span class="tag">${n.d}</span>${n.l.map(l=>`<span class="tag">${esc(l)}</span>`).join('')}
-  <p style="color:var(--mut);white-space:pre-wrap">${esc(n.ex||'')}${n.ex&&n.ex.length>=200?'…':''}</p>
+  ${n.pf?`<div style="border:1px solid #2ea043;border-radius:6px;padding:6px;margin:8px 0"><b style="color:#3fb950">Possibly already fixed (${n.pf.confidence})</b>${n.pf.evidence.map(e=>`<div style="margin-top:4px">${esc(e.why)}${e.fixed_by.length?' — fixed by '+e.fixed_by.map(p=>'#'+p).join(', '):''}</div>`).join('')}</div>`:''}<p style="color:var(--mut);white-space:pre-wrap">${esc(n.ex||'')}${n.ex&&n.ex.length>=200?'…':''}</p>
   <div class="sec">${nb.length} links</div>${nb.map(x=>`<span class="nb" onclick="focusN(${x.o.n})"><span style="color:${col(x.o)}">${x.o.t==='i'?'●':'◆'}</span> #${x.o.n} ${{c:'<span style="color:#f0883e">(Closes)</span> ',d:'<span style="color:#f85149">(duplicate?)</span> ',p:'<span style="color:#58a6ff">(bot: related)</span> ',r:''}[x.k]}${esc(x.o.ti.slice(0,60))}</span>`).join('')}`;
   p.style.display='block'}
 function focusN(num){const n=byN.get(num);if(!n)return;select(n);T.x=-n.x*T.k;T.y=-n.y*T.k}
@@ -189,18 +190,18 @@ const UNCLEAR=/duplicate|invalid|wontfix|won't fix|needs[ -]info|needs[ -]repro|
 for(const n of N){n.pr=Math.max(0,...n.l.map(prio));n.hasPR=n.t==='i'&&n.nb.some(e=>{const o=e.a===n?e.b:e.a;return o.t==='p'&&o.s!=='C'})}
 let wl=[];
 function work(){
-  const L=sel.value,hp=$('hp').checked,uc=$('wunclear').checked,bug=$('wbug').checked,q=$('q').value.trim().toLowerCase();
-  wl=N.filter(n=>n.t==='i'&&n.s==='O'&&!(hp&&n.hasPR)&&!(uc&&n.l.some(l=>UNCLEAR.test(l)))&&(!bug||n.l.some(l=>/bug/i.test(l)))&&(!L||n.l.includes(L))&&(!q||n.match));
+  const L=sel.value,hp=$('hp').checked,uc=$('wunclear').checked,bug=$('wbug').checked,fx=$('wfix').checked,q=$('q').value.trim().toLowerCase();
+  wl=N.filter(n=>n.t==='i'&&n.s==='O'&&!(hp&&n.hasPR)&&!(uc&&n.l.some(l=>UNCLEAR.test(l)))&&!(fx&&n.pf&&n.pf.confidence!=='low')&&(!bug||n.l.some(l=>/bug/i.test(l)))&&(!L||n.l.includes(L))&&(!q||n.match));
   const s=$('wsort').value;
   wl.sort((a,b)=>s==='deg'?b.deg-a.deg||b.pr-a.pr:s==='old'?a.d.localeCompare(b.d):s==='new'?b.d.localeCompare(a.d):b.pr-a.pr||b.deg-a.deg);
   $('wcount').textContent=`${wl.length} candidates`+(wl.length>150?' (first 150)':'');
   const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  $('wlist').innerHTML=wl.slice(0,150).map(n=>`<div class="wi" data-n="${n.n}"><span class="pr" style="background:${PC[n.pr]}">${PN[n.pr]}</span><span>#${n.n} ${esc(n.ti.slice(0,80))}${n.deg?` <span style="color:var(--mut)">· ${n.deg}🔗</span>`:''}</span><a href="${REPO}issues/${n.n}" target="_blank" title="open on GitHub" onclick="event.stopPropagation()">↗</a></div>`).join('');
+  $('wlist').innerHTML=wl.slice(0,150).map(n=>`<div class="wi" data-n="${n.n}"><span class="pr" style="background:${PC[n.pr]}">${PN[n.pr]}</span>${n.pf?`<span class="pr" style="background:#2ea043" title="${esc(n.pf.evidence.map(e=>e.why).join('\n'))}">fixed? ${n.pf.confidence}</span>`:''}<span>#${n.n} ${esc(n.ti.slice(0,80))}${n.deg?` <span style="color:var(--mut)">· ${n.deg}🔗</span>`:''}</span><a href="${REPO}issues/${n.n}" target="_blank" title="open on GitHub" onclick="event.stopPropagation()">↗</a></div>`).join('');
 }
 $('wlist').addEventListener('click',e=>{const r=e.target.closest('.wi');if(!r)return;const n=byN.get(+r.dataset.n);
   if(visSet.has(n)){focusN(n.n)}else{select(null);window.open(REPO+'issues/'+n.n,'_blank')}});
 $('wrand').onclick=()=>{const top=wl.slice(0,Math.max(10,Math.floor(wl.length/4)));const n=top[Math.floor(Math.random()*top.length)];if(!n)return;if(visSet.has(n))focusN(n.n);else window.open(REPO+'issues/'+n.n,'_blank')};
-for(const id of ['wsort','wunclear','wbug','hp','lab','q'])$(id).addEventListener('input',work);
+for(const id of ['wsort','wunclear','wbug','wfix','hp','lab','q'])$(id).addEventListener('input',work);
 work();
 
 {const t0=performance.now();while(alpha>0.02&&performance.now()-t0<6000)tick();window.preMs=performance.now()-t0}   // vorab einschwingen
